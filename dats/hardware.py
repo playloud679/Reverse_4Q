@@ -9,6 +9,8 @@ Schema ricavato per retro-ingegneria:
             (riferimento)      (tensione sul DUT)
 
 L'uscita destra non è usata.
+
+Documentazione: docs/modules/dats/hardware.md
 """
 from __future__ import annotations
 
@@ -69,7 +71,16 @@ def find_dats_devices():
 
 
 def playrec(out: np.ndarray, fs: int, dev_in: int, dev_out: int) -> np.ndarray:
-    """Riproduce `out` (n x 2) e registra 2 canali in contemporanea."""
+    """Riproduce `out` (n x 2) e registra 2 canali in contemporanea.
+
+    Solleva RuntimeError, prima di aprire lo stream, se un dispositivo non è stereo.
+    """
+    if dev_in is None or dev_out is None:
+        raise RuntimeError("Dispositivo audio non selezionato")
+    if sd.query_devices(dev_in)["max_input_channels"] < 2:
+        raise RuntimeError(f"L'ingresso [{dev_in}] non ha 2 canali")
+    if sd.query_devices(dev_out)["max_output_channels"] < 2:
+        raise RuntimeError(f"L'uscita [{dev_out}] non ha 2 canali")
     rec = sd.playrec(out.astype(np.float32), samplerate=fs, channels=2,
                      device=(dev_in, dev_out), dtype="float32", blocking=True)
     return rec.astype(float)

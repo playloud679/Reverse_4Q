@@ -1,10 +1,12 @@
-"""DATS V3 — clone Streamlit multipiattaforma.
+"""DATS V3 — clone Streamlit multipiattaforma (interfaccia).
 
 Avvio:  streamlit run app.py
+Documentazione: docs/modules/app.md
 """
 from __future__ import annotations
 
 import datetime as dt
+import importlib
 import math
 
 import numpy as np
@@ -13,8 +15,13 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from dats import __version__, dsp, export, hardware, params
-from dats.calibration import CAL_FILE, Calibration
+from dats import __version__, calibration, dsp, export, hardware, params
+
+# Streamlit tiene vivo il processo: ricarica i moduli del backend a ogni esecuzione
+# (dsp prima di params e calibration, che ne importano funzioni)
+for _mod in (hardware, dsp, calibration, params, export):
+    importlib.reload(_mod)
+CAL_FILE, Calibration = calibration.CAL_FILE, calibration.Calibration
 
 st.set_page_config(page_title="DATS V3 Streamlit", page_icon="🔊", layout="wide")
 
@@ -162,8 +169,8 @@ with t_imp:
     if not ss.cal.summary()["1kΩ"]:
         st.info("Unità non calibrata: precisione ~10%. Esegui la calibrazione nella scheda 🎯.")
     c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
-    do_fa = c1.button("▶ Parametri free-air", type="primary", width="stretch")
-    do_sw = c2.button("▶ Solo sweep impedenza", width="stretch")
+    do_fa = c1.button("▶ Parametri free-air", key="btn_free_air", type="primary", width="stretch")
+    do_sw = c2.button("▶ Solo sweep impedenza", key="btn_sweep", width="stretch")
     re_override = c3.number_input("Re manuale [Ω] (0 = auto)", 0.0, 1000.0, 0.0, 0.01)
     with c4:
         fa_min, fa_max = st.select_slider("Ricerca risonanza [Hz]",
@@ -189,6 +196,8 @@ with t_imp:
             if "errore" in p:
                 st.error(p["errore"])
             elif p:
+                for w in p.get("_avvisi", []):
+                    st.warning(w)
                 st.dataframe(fmt_params(p), hide_index=True, width="stretch", height=560)
 
         if p and "errore" not in p:
@@ -209,22 +218,28 @@ with t_imp:
                 if method == "Scatola di test":
                     kw["vb_l"] = st.number_input("Volume scatola chiusa Vt [L]", 0.1, 1000.0, 10.0, 0.1)
                     st.caption("Monta il driver sulla scatola e misura.")
-                    if st.button("▶ Misura nella scatola"):
+                    if st.button("▶ Misura nella scatola", key="btn_vas_box"):
                         with st.spinner("Misura…"):
                             fb, zb, _ = run_measure()
                         pb = params.free_air(fb, zb, p["Re"], fa_min, fa_max)
-                        ss.vas = {"fct": pb["fs"], "qect": pb["Qes"], "qmct": pb["Qms"], "fb": fb, "zb": zb}
+                        if "errore" in pb:
+                            st.error(f"Misura nella scatola: {pb['errore']}")
+                        else:
+                            ss.vas = {"fct": pb["fs"], "qect": pb["Qes"], "qmct": pb["Qms"], "fb": fb, "zb": zb}
                     if "fct" in ss.vas:
                         kw.update(fct=ss.vas["fct"], qect=ss.vas["qect"])
                         st.write(f"Fct = {ss.vas['fct']:.2f} Hz · Qect = {ss.vas['qect']:.3f} · Qmct = {ss.vas['qmct']:.3f}")
                 elif method == "Massa aggiunta":
                     kw["ma_g"] = st.number_input("Massa aggiunta [g]", 0.1, 2000.0, 10.0, 0.1)
                     st.caption("Fissa la massa al cono (Fs deve scendere del 25–50%) e misura.")
-                    if st.button("▶ Misura con massa aggiunta"):
+                    if st.button("▶ Misura con massa aggiunta", key="btn_vas_mass"):
                         with st.spinner("Misura…"):
                             fb, zb, _ = run_measure()
                         pb = params.free_air(fb, zb, p["Re"], fa_min, p["fs"] * 1.05)
-                        ss.vas = {"fsa": pb["fs"], "fb": fb, "zb": zb}
+                        if "errore" in pb:
+                            st.error(f"Misura con massa: {pb['errore']}")
+                        else:
+                            ss.vas = {"fsa": pb["fs"], "fb": fb, "zb": zb}
                     if "fsa" in ss.vas:
                         kw["fsa"] = ss.vas["fsa"]
                         st.write(f"Fs con massa = {ss.vas['fsa']:.2f} Hz")
@@ -261,19 +276,19 @@ with t_imp:
         s1, s2, s3, s4 = st.columns([2, 3, 1, 1])
         mname = s1.text_input("Nome", f"Misura {len(ss.memories) + 1}")
         mnotes = s2.text_input("Note", "")
-        if s3.button("💾 Salva in memoria", width="stretch"):
+        if s3.button("💾 Salva in memoria", key="btn_mem_save", width="stretch"):
             save_memory(mname, last["f"], last["z"], last["params"], last["kind"], mnotes)
             st.toast(f"Salvato: {mname}")
         with s4:
-            st.download_button(".zma", export.to_zma(fr, zr), file_name=f"{mname}.zma", width="stretch")
-            st.download_button(".txt", export.params_txt(mname, mnotes, last["params"]),
+            st.download_button(".zma", key="btn_dl_zma", data=export.to_zma(fr, zr), file_name=f"{mname}.zma", width="stretch")
+            st.download_button(".txt", key="btn_dl_txt", data=export.params_txt(mname, mnotes, last["params"]),
                                file_name=f"{mname}.txt", width="stretch")
 
 # ------------------------------------------------------------------- R L C
 with t_rlc:
     st.caption(f"Come in DATS, i componenti si misurano al livello massimo ({CAL_LEVEL:.0f} dBFS).")
     comp = st.radio("Componente", ["Resistore", "Induttore", "Condensatore"], horizontal=True)
-    if st.button("▶ Misura componente", type="primary"):
+    if st.button("▶ Misura componente", key="btn_rlc", type="primary"):
         with st.spinner("Misura…"):
             f, z, _ = run_measure(level_db=CAL_LEVEL)
         fr, zr = reduce(f, z)
@@ -300,7 +315,7 @@ with t_lin:
     nsw = l2.number_input("Numero di sweep", 2, 10, 3)
     step = l3.number_input("Passo [dB]", 1.0, 20.0, 10.0, 1.0)
     direction = l4.radio("Direzione", ["Decrescente", "Crescente"])
-    if st.button("▶ Avvia test di linearità", type="primary"):
+    if st.button("▶ Avvia test di linearità", key="btn_linearity", type="primary"):
         lv = [top - i * step for i in range(int(nsw))]
         if direction == "Crescente":
             lv = lv[::-1]
@@ -325,15 +340,18 @@ with t_rnb:
     tol_fs = r2.number_input("Tolleranza Fs [%]", 1.0, 500.0, 40.0)
     tol_z = r3.number_input("Tolleranza Zmax [%]", 1.0, 500.0, 100.0)
     a, b = st.columns(2)
-    if a.button("1️⃣ Misura riferimento (driver buono)"):
+    if a.button("1️⃣ Misura riferimento (driver buono)", key="btn_rnb_ref"):
         f, z, _ = run_measure()
         p = params.free_air(f, z)
-        ss.rnb_ref = {"f": f, "z": z, "p": p}
-        ss.rnb_log = []
+        if "errore" in p:
+            st.error(f"Riferimento non valido: {p['errore']}")
+        else:
+            ss.rnb_ref = {"f": f, "z": z, "p": p}
+            ss.rnb_log = []
     if ss.rnb_ref is not None:
         rp = ss.rnb_ref["p"]
         st.write(f"Riferimento: Fs = {rp['fs']:.2f} Hz · Zmax = {rp['Zmax']:.2f} Ω")
-        if b.button("2️⃣ Testa driver", type="primary"):
+        if b.button("2️⃣ Testa driver", key="btn_rnb_test", type="primary"):
             f, z, _ = run_measure(level_db=level + rnb_lvl)
             p = params.free_air(f, z)
             ok_fs = "fs" in p and params.within_geometric(p["fs"], rp["fs"], tol_fs)
@@ -360,11 +378,11 @@ with t_mem:
     else:
         for i, m in enumerate(ss.memories):
             c = st.columns([3, 4, 1, 1, 1])
-            m["name"] = c[0].text_input("Nome", m["name"], key=f"mn{i}", label_visibility="collapsed")
-            m["notes"] = c[1].text_input("Note", m.get("notes", ""), key=f"mt{i}", label_visibility="collapsed")
-            m["visible"] = c[2].checkbox("Mostra", m.get("visible", True), key=f"mv{i}")
-            m["overlay"] = c[3].checkbox("Su workbench", m.get("overlay", False), key=f"mo{i}")
-            if c[4].button("🗑", key=f"md{i}"):
+            m["name"] = c[0].text_input("Nome", m["name"], key=f"temp_mem_name_{i}", label_visibility="collapsed")
+            m["notes"] = c[1].text_input("Note", m.get("notes", ""), key=f"temp_mem_notes_{i}", label_visibility="collapsed")
+            m["visible"] = c[2].checkbox("Mostra", m.get("visible", True), key=f"temp_mem_visible_{i}")
+            m["overlay"] = c[3].checkbox("Su workbench", m.get("overlay", False), key=f"temp_mem_overlay_{i}")
+            if c[4].button("🗑", key=f"btn_mem_delete_{i}"):
                 ss.memories.pop(i)
                 st.rerun()
         vis = [(m["name"], m["f"], m["z"], COLORS[i % len(COLORS)]) for i, m in enumerate(ss.memories) if m["visible"]]
@@ -379,14 +397,14 @@ with t_mem:
             st.dataframe(pd.DataFrame(tab).set_index("Nome").T.style.format("{:.4g}", na_rep="—"))
     st.divider()
     p1, p2, p3 = st.columns(3)
-    p1.download_button("⬇ Salva progetto (.json)", export.project_json(ss.memories),
+    p1.download_button("⬇ Salva progetto (.json)", key="btn_dl_project", data=export.project_json(ss.memories),
                        file_name="progetto_dats.json", disabled=not ss.memories)
     up = p2.file_uploader("Carica progetto", type=["json"])
-    if up is not None and p2.button("Apri progetto"):
+    if up is not None and p2.button("Apri progetto", key="btn_project_open"):
         ss.memories = export.project_load(up.getvalue().decode())
         st.rerun()
     upz = p3.file_uploader("Importa .zma e calcola parametri", type=["zma", "txt", "frd"])
-    if upz is not None and p3.button("Importa"):
+    if upz is not None and p3.button("Importa", key="btn_zma_import"):
         f, z = export.from_zma(upz.getvalue().decode(errors="ignore"))
         p = params.free_air(f, z)
         save_memory(upz.name, f, z, p, "importato")
@@ -404,7 +422,7 @@ with t_gen:
     dur = g4.number_input("Durata [s]", 0.2, 30.0, 2.0)
     vfs = st.number_input("Volt di picco a 0 dBFS (opzionale, misurati con un multimetro; 0 = mostra in FS)",
                           0.0, 20.0, 0.0, 0.01)
-    if st.button("▶ Genera e acquisisci", type="primary"):
+    if st.button("▶ Genera e acquisisci", key="btn_generate", type="primary"):
         y = dsp.generate(kind, fs_audio, dur, freq, glev)
         out = np.zeros((len(y), 2))
         out[:, 0] = y
@@ -450,30 +468,30 @@ La calibrazione viene salvata in `""" + str(CAL_FILE) + "`.")
                            float(ss.cal.r_cal_ohm), 0.1)
     cal_q = list(dsp.QUALITY)[-1]
     k1, k2, k3, k4 = st.columns(4)
-    if k1.button("1️⃣ Aperto", width="stretch"):
+    if k1.button("1️⃣ Aperto", key="btn_cal_open", width="stretch"):
         with st.spinner("Misura a vuoto…"):
             raw = run_raw(CAL_LEVEL, cal_q)
         ss.cal.set_open(raw.f, raw.ratio)
         ss.cal.save()
         st.success(f"Rapporto a vuoto @1 kHz = {abs(ss.cal.r_open_at(np.array([1000.0]))[0]):.5f}")
-    if k2.button("2️⃣ 1 kΩ", width="stretch"):
+    if k2.button("2️⃣ 1 kΩ", key="btn_cal_load", width="stretch"):
         with st.spinner("Misura del resistore di riferimento…"):
             raw = run_raw(CAL_LEVEL, cal_q)
         ss.cal.set_load(raw.f, raw.ratio, rcal)
         ss.cal.save()
         st.success(f"Rs @1 kHz = {ss.cal.rs_at(np.array([1000.0]))[0].real:.3f} Ω")
-    if k3.button("3️⃣ Corto", width="stretch"):
+    if k3.button("3️⃣ Corto", key="btn_cal_short", width="stretch"):
         with st.spinner("Misura dei puntali in corto…"):
             raw = run_raw(CAL_LEVEL, cal_q)
         ss.cal.set_short(raw.f, raw.ratio)
         ss.cal.save()
         st.success(f"Resistenza puntali = {ss.cal.z_lead_at(np.array([100.0]))[0].real:.4f} Ω")
-    if k4.button("↺ Ripristina default", width="stretch"):
+    if k4.button("↺ Ripristina default", key="btn_cal_reset", width="stretch"):
         ss.cal.reset()
         ss.cal.save()
         st.rerun()
     st.divider()
-    if st.button("✔ Verifica: misura il carico collegato"):
+    if st.button("✔ Verifica: misura il carico collegato", key="btn_cal_verify"):
         f, z, _ = run_measure(level_db=CAL_LEVEL)
         fr, zr = reduce(f, z)
         st.metric("R misurata (20 Hz–2 kHz)", f"{params.resistor(f, z)['R [Ω]']:.4f} Ω")

@@ -1,5 +1,8 @@
 """Estrazione dei parametri, con le stesse formule documentate nella guida DATS
-(Tech Note 1, 2, 3 di J. L. Murphy)."""
+(Tech Note 1, 2, 3 di J. L. Murphy): T/S free-air, Vas (4 metodi), Wright, R/L/C.
+
+Documentazione: docs/modules/dats/params.md
+"""
 from __future__ import annotations
 
 import math
@@ -158,6 +161,10 @@ def free_air(f, z, re_override=None, fmin=5.0, fmax=5000.0, le_freqs=(1000.0, 10
         idx = np.where(np.diff(np.sign(mx - zx)) != 0)[0]
         return idx
 
+    if not zmax > re > 0:
+        return {"errore": f"Invariante violato: serve Zmax > Re > 0 (Zmax={zmax:.3g}, Re={re:.3g})"}
+
+    # f1 scendendo dal picco verso DC, f2 salendo: ultimo/primo attraversamento di zx
     f1 = f2 = float("nan")
     ib = cross(fb[below], mag[below])
     if len(ib):
@@ -169,15 +176,26 @@ def free_air(f, z, re_override=None, fmin=5.0, fmax=5000.0, le_freqs=(1000.0, 10
         i = ia[0]
         x0, x1, y0, y1 = fb[above][i], fb[above][i + 1], mag[above][i], mag[above][i + 1]
         f2 = float(np.exp(np.log(x0) + (zx - y0) / (y1 - y0) * (np.log(x1) - np.log(x0))))
-    fs_geo = math.sqrt(f1 * f2) if np.isfinite(f1 * f2) else fs
-    qms = fs * math.sqrt(r0) / (f2 - f1) if np.isfinite(f2 - f1) else fit["Qms"]
+    warnings = []
+    # f2 mascherata dall'induttanza o f1 dal limite in bassa: media geometrica (addendum §2)
+    if np.isfinite(f1) and not np.isfinite(f2):
+        f2 = fs * fs / f1
+        warnings.append("f2 non misurabile: ricavata come Fs²/f1")
+    elif np.isfinite(f2) and not np.isfinite(f1):
+        f1 = fs * fs / f2
+        warnings.append("f1 non misurabile: ricavata come Fs²/f2")
+    if not (np.isfinite(f1) and np.isfinite(f2)):
+        return {"errore": "Punti a metà potenza f1 e f2 non trovati"}
+    if not 0 < f1 < fs < f2:
+        return {"errore": f"Invariante violato: serve 0 < f1 < Fs < f2 (f1={f1:.4g}, Fs={fs:.4g}, f2={f2:.4g})"}
+    qms = fs * math.sqrt(r0) / (f2 - f1)
     qes = qms / (r0 - 1)
     qts = qms * qes / (qms + qes)
 
     out = {
         "fs": fs, "Re": re, "Zmax": zmax, "Qms": qms, "Qes": qes, "Qts": qts,
-        "f1": f1, "f2": f2, "fs_geom": fs_geo, "Rnom": nominal_impedance(re),
-        "fit": fit,
+        "f1": f1, "f2": f2, "fs_geom": math.sqrt(f1 * f2), "Rnom": nominal_impedance(re),
+        "fit": fit, "_avvisi": warnings,
     }
     # Le e Wright sull'impedenza della sola bobina: si toglie la parte mozionale
     # (sopra Fs è capacitiva e falserebbe Le a 1 kHz sui driver con Fs alta)
@@ -197,14 +215,12 @@ def wright(f, z, re, f1=7000.0, f2=14000.0):
     z1, z2 = _value_at(f, z, f1), _value_at(f, z, f2)
     w1, w2 = 2 * math.pi * f1, 2 * math.pi * f2
     r1, r2 = z1.real - re, z2.real - re
-    try:
-        xr = math.log(r2 / r1) / math.log(w2 / w1)
-        kr = r1 / w1 ** xr
-        xi = math.log(z2.imag / z1.imag) / math.log(w2 / w1)
-        ki = z1.imag / w1 ** xi
-    except (ValueError, ZeroDivisionError):
+    # il modello a potenze richiede parti reale (oltre Re) e immaginaria positive
+    if not min(r1, r2, z1.imag, z2.imag) > 0:
         return {}
-    return {"Kr": kr, "Xr": xr, "Ki": ki, "Xi": xi}
+    xr = math.log(r2 / r1) / math.log(w2 / w1)
+    xi = math.log(z2.imag / z1.imag) / math.log(w2 / w1)
+    return {"Kr": r1 / w1 ** xr, "Xr": xr, "Ki": z1.imag / w1 ** xi, "Xi": xi}
 
 
 # ---------------------------------------------------------------- Vas
@@ -246,7 +262,7 @@ def derived(p, sd_m2, method, **kw):
     bl = math.sqrt(ws * mms * re / qes)
     rms = ws * mms / qms
     vas_l = vas * 1000
-    eta0 = 2.7e-8 * fs ** 3 * (vas_l * FT3_PER_L) / qes
+    eta0 = 4 * math.pi ** 2 / C_AIR ** 3 * fs ** 3 * vas / qes   # = 2.7e-8·fs³·Vas[ft³]/Qes di DATS
     spl1w = 112.1 + 10 * math.log10(eta0) if eta0 > 0 else float("nan")
     rnom = p.get("Rnom") or 8
     out = {

@@ -1,4 +1,7 @@
-"""Esportazione nei formati DATS (.zma, .txt) e progetto JSON."""
+"""Esportazione nei formati DATS (.zma, .txt) e progetto JSON.
+
+Documentazione: docs/modules/dats/export.md
+"""
 from __future__ import annotations
 
 import json

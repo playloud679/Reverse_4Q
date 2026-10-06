@@ -8,6 +8,8 @@ Modello (verificato sull'hardware):
 Rs (resistenza serie interna, ~94 Ω) si ricava dalla misura sul 1 kΩ frontale,
 Z_puntali dal cortocircuito. Tutte le grandezze sono complesse e dipendenti dalla
 frequenza, quindi il metodo equivale a una calibrazione Open/Short/Load.
+
+Documentazione: docs/modules/dats/calibration.md
 """
 from __future__ import annotations
 

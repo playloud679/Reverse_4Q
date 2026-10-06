@@ -1,8 +1,10 @@
-"""Eccitazione periodica multitono e misura del rapporto fra i due ingressi.
+"""Segnali di test periodici (sweep, multitono) e misura del rapporto fra i due ingressi.
 
 Come il software originale, si usa un segnale periodico a larga banda e la FFT
 su un numero intero di periodi (DATS V3: periodo 128k campioni a 44.1 kHz).
 Il rapporto IN_L / IN_R non dipende dalla latenza né dal volume di uscita.
+
+Documentazione: docs/modules/dats/dsp.md
 """
 from __future__ import annotations
 
@@ -84,8 +86,10 @@ def measure(dev_in: int, dev_out: int, fs: int = 44100, n_fft: int = 2**16, n_av
             kind: str = "sweep") -> RawMeasurement:
     x, band = excitation(n_fft, fs, fmin, fmax, kind=kind)
     amp = 10 ** (level_dbfs / 20)
-    pad = int(0.3 * fs)
-    total = (1 + n_avg) * n_fft + pad          # 1 periodo di assestamento + medie + coda
+    # in testa 1 periodo intero (≥1,5 s) di assestamento, in coda 0,5 s per la latenza:
+    # i blocchi analizzati non toccano mai i bordi dello stream
+    pad = int(0.5 * fs)
+    total = (1 + n_avg) * n_fft + pad
     sig = np.tile(x, 2 + n_avg)[:total] * amp
     ramp = int(0.02 * fs)
     sig[:ramp] *= np.linspace(0, 1, ramp)
