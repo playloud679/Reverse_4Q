@@ -1,9 +1,17 @@
 # Reverse 4Q — DATS V3 in Streamlit
 
+[![Version](https://img.shields.io/badge/version-0.2.1-blue.svg)](VERSION)
+[![Stage](https://img.shields.io/badge/stage-alpha-orange.svg)](AGENTS.md)
+[![Standard](https://img.shields.io/badge/standard-GOLDEN__STD%201.5.0-gold.svg)](GOLDEN_STD.md)
+
 App Streamlit **multipiattaforma** (Windows, macOS, Linux) che usa l'hardware
 **Dayton Audio DATS V3** per fare le stesse misure del software originale, che gira solo su Windows.
 
-Versione attuale: **0.2.0** — vedi [CHANGELOG.md](CHANGELOG.md).
+- Versione **0.2.1**, stadio **Alpha** — vedi [CHANGELOG.md](CHANGELOG.md).
+- Sviluppo secondo [GOLDEN_STD.md](GOLDEN_STD.md) con gli addenda
+  [Audio DSP](addenda/AUDIO_DSP_ACOUSTICS.md) e [Streamlit](addenda/STREAMLIT_SAAS.md);
+  regole per agenti, ramo di integrazione (`main`) e fonti di verità in [AGENTS.md](AGENTS.md).
+- Documentazione dei moduli: [docs/INDEX.md](docs/INDEX.md).
 
 ## Funzioni
 
@@ -100,7 +108,18 @@ dats/dsp.py         segnali di test (sweep, multitono), misura, smoothing, gener
 dats/calibration.py calibrazione aperto / 1 kΩ / corto
 dats/params.py      parametri T/S, Vas, Wright, R/L/C, rub & buzz
 dats/export.py      .zma, .txt, progetto JSON
+docs/               un documento per modulo, indice in docs/INDEX.md
+tests/test_dats.py  test offline (unittest, nessun hardware richiesto)
 ```
+
+## Test
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+La suite non richiede il DATS: modelli sintetici, calibrazione simulata, regressione sull'export del
+software originale e avvio headless dell'interfaccia.
 
 ## Limiti
 
